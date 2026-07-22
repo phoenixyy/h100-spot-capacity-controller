@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 import base64
 from decimal import Decimal
 from hashlib import sha256
+import json
 import unittest
 
 from h100_spot_controller.config import ConfigurationError, target_from_mapping
@@ -17,7 +18,7 @@ from h100_spot_controller.metrics import eks_readiness_metric_data, metric_data,
 from h100_spot_controller.reconciliation import reconcile_target
 from h100_spot_controller.handlers import collect as collect_handler, reconcile as reconcile_handler, spot_event
 from h100_spot_controller.notifications import NotificationDeduplicator, failover_event_notifier, publish_controller_event, publish_once, shortfall_notification_due
-from h100_spot_controller.pricing import linux_ondemand_hourly_price
+from h100_spot_controller.pricing import PricingError, linux_ondemand_hourly_price
 from h100_spot_controller.launch_contract import inspect_launch_contract
 from h100_spot_controller.gpu import GpuMetadataError, describe_gpu_instance_types, target_with_gpu_metadata
 
@@ -74,6 +75,15 @@ def launch_template_response(target, region):
         "BlockDeviceMappings": [{"DeviceName": "/dev/xvda", "Ebs": {"Encrypted": True, "DeleteOnTermination": True}}],
         "TagSpecifications": [{"ResourceType": "instance", "Tags": tags}, {"ResourceType": "volume", "Tags": tags}],
     }}]}
+
+
+def pricing_product(price="55.04", *, attributes=None, term_type="OnDemand", unit="Hrs", currency="USD"):
+    return json.dumps({
+        "product": {"attributes": attributes or {}},
+        "terms": {term_type: {"term": {"priceDimensions": {"hour": {
+            "unit": unit, "pricePerUnit": {currency: price},
+        }}}}},
+    })
 
 
 class DomainTests(unittest.TestCase):
@@ -1030,10 +1040,67 @@ class DomainTests(unittest.TestCase):
         class Pricing:
             def get_products(self, **kwargs):
                 self.kwargs = kwargs
-                return {"PriceList": ['{"terms":{"OnDemand":{"term":{"priceDimensions":{"hour":{"unit":"Hrs","pricePerUnit":{"USD":"55.0400000000"}}}}}}}']}
+                return {"PriceList": [pricing_product("55.0400000000")]}
         pricing = Pricing()
         self.assertEqual("55.0400000000", str(linux_ondemand_hourly_price(pricing, "us-east-1", "p5.48xlarge")))
         self.assertEqual("us-east-1", pricing.kwargs["Filters"][1]["Value"])
+        filters = {item["Field"]: item["Value"] for item in pricing.kwargs["Filters"]}
+        self.assertEqual("OnDemand", filters["marketoption"])
+        self.assertEqual("RunInstances", filters["operation"])
+        self.assertEqual(100, pricing.kwargs["MaxResults"])
+
+    def test_linux_ondemand_price_ignores_zero_capacity_block_before_valid_product(self):
+        capacity_block = pricing_product("0", attributes={"marketoption": "CapacityBlock", "operation": "RunInstances:CB"})
+        ondemand = pricing_product("6.88", attributes={"marketoption": "OnDemand", "operation": "RunInstances"})
+
+        class Pricing:
+            def get_products(self, **kwargs):
+                return {"PriceList": [capacity_block, ondemand]}
+
+        self.assertEqual(Decimal("6.88"), linux_ondemand_hourly_price(Pricing(), "us-east-1", "p5.4xlarge"))
+
+    def test_linux_ondemand_price_follows_pagination(self):
+        class Pricing:
+            requests = []
+
+            def get_products(self, **kwargs):
+                self.requests.append(kwargs)
+                if "NextToken" not in kwargs:
+                    return {"PriceList": [pricing_product("0")], "NextToken": "page-2"}
+                return {"PriceList": [pricing_product("2.699")]}
+
+        pricing = Pricing()
+        self.assertEqual(Decimal("2.699"), linux_ondemand_hourly_price(pricing, "ap-northeast-2", "g6e.xlarge"))
+        self.assertEqual("page-2", pricing.requests[1]["NextToken"])
+
+    def test_linux_ondemand_price_deduplicates_identical_positive_prices(self):
+        class Pricing:
+            def get_products(self, **kwargs):
+                return {"PriceList": [pricing_product("6.880"), pricing_product("6.88")]}
+
+        self.assertEqual(Decimal("6.88"), linux_ondemand_hourly_price(Pricing(), "us-east-1", "p5.4xlarge"))
+
+    def test_linux_ondemand_price_fails_closed_without_positive_matching_price(self):
+        class Pricing:
+            def get_products(self, **kwargs):
+                return {"PriceList": [
+                    pricing_product("0"),
+                    pricing_product("4", term_type="Reserved"),
+                    pricing_product("4", unit="Quantity"),
+                    pricing_product("4", currency="EUR"),
+                    "not-json",
+                ]}
+
+        with self.assertRaises(PricingError):
+            linux_ondemand_hourly_price(Pricing(), "us-east-1", "p5.4xlarge")
+
+    def test_linux_ondemand_price_fails_closed_on_conflicting_positive_prices(self):
+        class Pricing:
+            def get_products(self, **kwargs):
+                return {"PriceList": [pricing_product("6.88"), pricing_product("7.01")]}
+
+        with self.assertRaisesRegex(PricingError, "conflicting"):
+            linux_ondemand_hourly_price(Pricing(), "us-east-1", "p5.4xlarge")
 
     def test_fleet_request_is_spot_maintain_with_machine_weight_one(self):
         request = fleet_request(target_from_mapping(target_mapping()), ("use1-az1",))
