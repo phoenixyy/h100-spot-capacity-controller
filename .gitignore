@@ -1,0 +1,22 @@
+__pycache__/
+*.py[cod]
+.venv/
+cdk.out/
+cdk.out.*/
+*.egg-info/
+.pytest_cache/
+.coverage
+coverage.xml
+.DS_Store
+.codex/
+
+# Locally reviewed configurations contain account-specific AWS resource IDs.
+config/*.reviewed.yaml
+config/*.enabled.yaml
+
+# Local validation records contain account and resource identifiers.
+docs/account-input-inventory.md
+docs/sps-region-selection-validation.md
+docs/validation-deployment-plan.md
+docs/validation-gate-*-evidence.md
+docs/validation-readonly-evidence.md

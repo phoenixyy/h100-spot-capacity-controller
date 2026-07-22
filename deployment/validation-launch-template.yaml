@@ -1,0 +1,112 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Operator-owned security group and Launch Template for one-region g6e functional validation.
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  AmiId:
+    Type: AWS::EC2::Image::Id
+  InstanceProfileArn:
+    Type: String
+    AllowedPattern: '^arn:aws:iam::[0-9]{12}:instance-profile/.+$'
+  TargetId:
+    Type: String
+    Default: g6e-functional-validation
+    AllowedValues:
+      - g6e-functional-validation
+
+Resources:
+  ValidationSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: No-ingress security group for bounded g6e functional validation
+      GroupName: Phoenix-Codex-Local-Spot-Functional-Validation
+      VpcId: !Ref VpcId
+      SecurityGroupIngress: []
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          CidrIp: 0.0.0.0/0
+          Description: Outbound access for SSM and AWS services
+      Tags:
+        - Key: Name
+          Value: Phoenix-Codex-Local-Spot-Functional-Validation
+        - Key: purpose
+          Value: functional-validation
+        - Key: ownership
+          Value: operator
+
+  ValidationLaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: Phoenix-Codex-Local-Spot-Functional-Validation
+      TagSpecifications:
+        - ResourceType: launch-template
+          Tags:
+            - Key: Name
+              Value: Phoenix-Codex-Local-Spot-Functional-Validation
+            - Key: purpose
+              Value: functional-validation
+            - Key: ownership
+              Value: operator
+      LaunchTemplateData:
+        ImageId: !Ref AmiId
+        IamInstanceProfile:
+          Arn: !Ref InstanceProfileArn
+        SecurityGroupIds:
+          - !Ref ValidationSecurityGroup
+        MetadataOptions:
+          HttpEndpoint: enabled
+          HttpTokens: required
+          InstanceMetadataTags: enabled
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda
+            Ebs:
+              DeleteOnTermination: true
+              Encrypted: true
+              VolumeSize: 30
+              VolumeType: gp3
+              Iops: 3000
+              Throughput: 125
+        UserData:
+          Fn::Base64: |
+            #!/bin/bash
+            set -euo pipefail
+
+            systemctl enable --now amazon-ssm-agent
+            mkdir -p /var/lib/h100-spot-functional-validation
+            nvidia-smi --query-gpu=name,uuid,memory.total,driver_version --format=csv \
+              > /var/lib/h100-spot-functional-validation/nvidia-smi.csv
+            date --iso-8601=seconds > /var/lib/h100-spot-functional-validation/bootstrap-complete-at
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: Phoenix-Codex-Local-Spot-g6e-functional-validation
+              - Key: managed-by
+                Value: h100-spot-capacity-controller
+              - Key: capacity-target-id
+                Value: !Ref TargetId
+              - Key: purpose
+                Value: functional-validation
+              - Key: bootstrap-contract-version
+                Value: standalone-validation-v1
+          - ResourceType: volume
+            Tags:
+              - Key: Name
+                Value: Phoenix-Codex-Local-Spot-g6e-functional-validation
+              - Key: managed-by
+                Value: h100-spot-capacity-controller
+              - Key: capacity-target-id
+                Value: !Ref TargetId
+              - Key: purpose
+                Value: functional-validation
+              - Key: bootstrap-contract-version
+                Value: standalone-validation-v1
+
+Outputs:
+  SecurityGroupId:
+    Value: !Ref ValidationSecurityGroup
+  LaunchTemplateId:
+    Value: !Ref ValidationLaunchTemplate
+  LaunchTemplateLatestVersion:
+    Value: !GetAtt ValidationLaunchTemplate.LatestVersionNumber

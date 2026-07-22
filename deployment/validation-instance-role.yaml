@@ -1,0 +1,37 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Operator-owned least-privilege instance role for the bounded g6e functional-validation target.
+
+Resources:
+  ValidationInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: Phoenix-Codex-Local-Spot-Validation-Instance
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags:
+        - Key: Name
+          Value: Phoenix-Codex-Local-Spot-Validation-Instance
+        - Key: purpose
+          Value: functional-validation
+        - Key: ownership
+          Value: operator
+
+  ValidationInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: Phoenix-Codex-Local-Spot-Validation-Instance
+      Roles:
+        - !Ref ValidationInstanceRole
+
+Outputs:
+  InstanceRoleArn:
+    Value: !GetAtt ValidationInstanceRole.Arn
+  InstanceProfileArn:
+    Value: !GetAtt ValidationInstanceProfile.Arn

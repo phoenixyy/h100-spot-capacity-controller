@@ -1,0 +1,51 @@
+# Disabled by default; replace placeholders before any eventual deployment.
+target_id: h100-training
+accelerator_profile: h100-production
+enabled: false
+desired_instance_count: 1
+maximum_instance_count: 1
+active_region: us-east-1
+region_selection:
+  mode: manual
+  signal_max_age_minutes: 20
+  decision_ttl_minutes: 15
+integration_mode: standalone
+capacity_rebalancing: false
+excess_instance_termination: false
+price_cap_source: linux-ondemand
+zone_expansion_minutes: 15
+region_failover_minutes: 30
+failover_approval_minutes: 30
+# null uses the controller-owned SNS topic passed to Lambda at deployment.
+notification_topic_arn: null
+instance_types:
+  - name: p5.48xlarge
+candidate_regions:
+  - region: us-east-1
+    launch_template_id: lt-REPLACE_ME
+    launch_template_version: "1"
+    ami_id: ami-REPLACE_ME
+    iam_instance_profile_arn: arn:aws:iam::ACCOUNT_ID:instance-profile/REPLACE_ME
+    security_group_ids: [sg-REPLACE_ME]
+    bootstrap_contract_version: standalone-v1
+    user_data_sha256: REPLACE_WITH_APPROVED_SHA256
+    root_volume_encrypted: true
+    root_volume_kms_key_arn: null
+    standard_placements:
+      - subnet_id: subnet-REPLACE_ME
+        zone_id: use1-az1
+    local_zone_placements: []
+  - region: us-west-2
+    launch_template_id: lt-REPLACE_ME
+    launch_template_version: "1"
+    ami_id: ami-REPLACE_ME
+    iam_instance_profile_arn: arn:aws:iam::ACCOUNT_ID:instance-profile/REPLACE_ME
+    security_group_ids: [sg-REPLACE_ME]
+    bootstrap_contract_version: standalone-v1
+    user_data_sha256: REPLACE_WITH_APPROVED_SHA256
+    root_volume_encrypted: true
+    root_volume_kms_key_arn: null
+    standard_placements:
+      - subnet_id: subnet-REPLACE_ME
+        zone_id: usw2-az1
+    local_zone_placements: []

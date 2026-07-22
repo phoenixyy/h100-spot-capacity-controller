@@ -1,0 +1,21 @@
+schema: spec-driven
+
+context: |
+  Domain: persistent acquisition of EC2 Spot capacity for NVIDIA H100 instances.
+  Primary scope: one AWS account and one user-selected Region per capacity target.
+  Safety: never create, modify, or terminate AWS resources until a reviewed change
+  is approved and the operator explicitly authorizes deployment.
+  Preferred delivery: AWS CDK and Python (boto3), with CloudWatch observability.
+  Reference: the EC2 Spot Placement Score Tracker may be reused for capacity-score
+  collection and dashboard patterns; the system itself must remain lightweight and
+  must not require an EKS cluster.
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours

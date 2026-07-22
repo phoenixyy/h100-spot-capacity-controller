@@ -1,0 +1,50 @@
+# Disabled example for read-only Tokyo/Seoul SPS recommendation testing.
+# Copy the reviewed regional launch contracts before eventual operator-authorized use.
+target_id: g6e-functional-validation-auto-initial
+accelerator_profile: functional-validation
+enabled: false
+desired_instance_count: 1
+maximum_instance_count: 1
+region_selection:
+  mode: auto_initial
+  signal_max_age_minutes: 20
+  decision_ttl_minutes: 15
+integration_mode: standalone
+price_cap_source: linux-ondemand
+zone_expansion_minutes: 15
+region_failover_minutes: 30
+failover_approval_minutes: 30
+capacity_rebalancing: false
+excess_instance_termination: false
+notification_topic_arn: null
+ownership_tags:
+  purpose: functional-validation
+instance_types:
+  - name: g6e.xlarge
+candidate_regions:
+  - region: ap-northeast-1
+    launch_template_id: lt-REPLACE_TOKYO
+    launch_template_version: "1"
+    ami_id: ami-REPLACE_TOKYO
+    iam_instance_profile_arn: arn:aws:iam::ACCOUNT_ID:instance-profile/Phoenix-Codex-Local-Spot-Validation-Instance
+    security_group_ids: [sg-REPLACE_TOKYO]
+    bootstrap_contract_version: standalone-validation-v1
+    user_data_sha256: REPLACE_WITH_APPROVED_SHA256
+    root_volume_encrypted: true
+    standard_placements:
+      - subnet_id: subnet-REPLACE_TOKYO
+        zone_id: apne1-az1
+    local_zone_placements: []
+  - region: ap-northeast-2
+    launch_template_id: lt-REPLACE_SEOUL
+    launch_template_version: "1"
+    ami_id: ami-REPLACE_SEOUL
+    iam_instance_profile_arn: arn:aws:iam::ACCOUNT_ID:instance-profile/Phoenix-Codex-Local-Spot-Validation-Instance
+    security_group_ids: [sg-REPLACE_SEOUL]
+    bootstrap_contract_version: standalone-validation-v1
+    user_data_sha256: REPLACE_WITH_APPROVED_SHA256
+    root_volume_encrypted: true
+    standard_placements:
+      - subnet_id: subnet-REPLACE_SEOUL
+        zone_id: apne2-az2
+    local_zone_placements: []

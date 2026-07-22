@@ -1,0 +1,56 @@
+# Disabled, read-only-review template. Placeholder launch inputs are not approved
+# and MUST be replaced and reviewed before this target can be enabled.
+target_id: g6e-functional-validation
+accelerator_profile: functional-validation
+enabled: false
+desired_instance_count: 1
+maximum_instance_count: 1
+active_region: ap-northeast-1
+region_selection:
+  mode: manual
+  signal_max_age_minutes: 20
+  decision_ttl_minutes: 15
+integration_mode: standalone
+price_cap_source: linux-ondemand
+zone_expansion_minutes: 15
+region_failover_minutes: 30
+failover_approval_minutes: 30
+capacity_rebalancing: false
+excess_instance_termination: false
+ownership_tags:
+  purpose: functional-validation
+instance_types:
+  - name: g6e.xlarge
+candidate_regions:
+  - region: ap-northeast-1
+    launch_template_id: lt-tokyo-placeholder
+    launch_template_version: "1"
+    ami_id: ami-0593546299360db73
+    iam_instance_profile_arn: arn:aws:iam::680109934508:instance-profile/Phoenix-Codex-Local-Spot-Validation-Instance
+    security_group_ids:
+      - sg-tokyo-placeholder
+    bootstrap_contract_version: standalone-validation-v1
+    user_data_sha256: "27a1a60400e61bc05056ec63bc39b23f323cdc0dba12a67d70d0b163d1e758b6"
+    root_volume_encrypted: true
+    standard_placements:
+      - subnet_id: subnet-51b7c009
+        zone_id: apne1-az1
+      - subnet_id: subnet-2d9aae5b
+        zone_id: apne1-az4
+    local_zone_placements: []
+  - region: ap-northeast-2
+    launch_template_id: lt-seoul-placeholder
+    launch_template_version: "1"
+    ami_id: ami-0432f8beb92162bf4
+    iam_instance_profile_arn: arn:aws:iam::680109934508:instance-profile/Phoenix-Codex-Local-Spot-Validation-Instance
+    security_group_ids:
+      - sg-seoul-placeholder
+    bootstrap_contract_version: standalone-validation-v1
+    user_data_sha256: "27a1a60400e61bc05056ec63bc39b23f323cdc0dba12a67d70d0b163d1e758b6"
+    root_volume_encrypted: true
+    standard_placements:
+      - subnet_id: subnet-6a408511
+        zone_id: apne2-az2
+      - subnet_id: subnet-11989878
+        zone_id: apne2-az1
+    local_zone_placements: []
