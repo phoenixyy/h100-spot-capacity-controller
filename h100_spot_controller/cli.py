@@ -15,7 +15,7 @@ from .launch_contract import inspect_launch_contract
 from .notifications import NotificationDeduplicator, failover_event_notifier
 from .placement import initial_placement
 from .pricing import ondemand_caps
-from .state import DynamoStateStore, DynamoTargetStore
+from .state import DynamoStateStore, DynamoTargetStore, restore_config_numbers
 
 
 def main() -> int:
@@ -72,7 +72,8 @@ def main() -> int:
         item = table.get_item(Key={"pk": f"TARGET#{args.target_id}", "sk": "CONFIG"}, ConsistentRead=True).get("Item")
         if item is None:
             parser.error("persisted target configuration not found")
-        target = target_from_mapping(item["config"])
+        raw_config = restore_config_numbers(item["config"])
+        target = target_from_mapping(raw_config)
         gpu_metadata = {}
         if target.accelerator_profile != "functional-validation":
             gpu_metadata = {
@@ -81,7 +82,7 @@ def main() -> int:
                 ).items()}
                 for inputs in target.candidate_regions
             }
-        print(json.dumps({"target_id": args.target_id, "configuration_version": int(item["configuration_version"]), "config": item["config"], "gpu_metadata": gpu_metadata, "aws_write": False}, default=str))
+        print(json.dumps({"target_id": args.target_id, "configuration_version": int(item["configuration_version"]), "config": raw_config, "gpu_metadata": gpu_metadata, "aws_write": False}, default=str))
         return 0
     if args.command == "failover-request":
         import boto3

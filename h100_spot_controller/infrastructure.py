@@ -68,7 +68,7 @@ class CapacityControllerStack(Stack):
         self.notifications.grant_publish(role)
         role.add_to_policy(iam.PolicyStatement(actions=[
             "ec2:DescribeAvailabilityZones", "ec2:DescribeFleets", "ec2:DescribeFleetInstances", "ec2:DescribeInstances",
-            "ec2:DescribeInstanceTypeOfferings", "ec2:DescribeLaunchTemplateVersions", "ec2:DescribeSpotPriceHistory", "ec2:DescribeSubnets",
+            "ec2:DescribeInstanceTypes", "ec2:DescribeInstanceTypeOfferings", "ec2:DescribeLaunchTemplateVersions", "ec2:DescribeSpotPriceHistory", "ec2:DescribeSubnets",
             "ec2:GetSpotPlacementScores", "pricing:GetProducts", "eks:DescribeCluster",
             "cloudwatch:PutMetricData",
         ], resources=["*"]))

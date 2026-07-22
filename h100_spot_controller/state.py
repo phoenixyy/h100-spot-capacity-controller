@@ -108,7 +108,7 @@ class DynamoTargetStore:
         if item is None:
             return None
         raw = item.get("config")
-        return _restore_config_numbers(raw) if isinstance(raw, dict) else None
+        return restore_config_numbers(raw) if isinstance(raw, dict) else None
 
 
 class RegionSignalStore(Protocol):
@@ -246,14 +246,14 @@ class DynamoRegionDecisionStore:
             raise
 
 
-def _restore_config_numbers(value: Any) -> Any:
+def restore_config_numbers(value: Any) -> Any:
     """Restore integer-like DynamoDB Decimals to the strict YAML/JSON config type."""
     if isinstance(value, Decimal) and value == value.to_integral_value():
         return int(value)
     if isinstance(value, dict):
-        return {key: _restore_config_numbers(item) for key, item in value.items()}
+        return {key: restore_config_numbers(item) for key, item in value.items()}
     if isinstance(value, list):
-        return [_restore_config_numbers(item) for item in value]
+        return [restore_config_numbers(item) for item in value]
     return value
 
 

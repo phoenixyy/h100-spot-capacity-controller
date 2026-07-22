@@ -80,6 +80,20 @@ class InfrastructureTests(unittest.TestCase):
         self.assertNotEqual("*", statements[0]["Resource"])
         self.assertIn("State", str(statements[0]["Resource"]))
 
+    def test_reconciler_can_verify_gpu_instance_metadata(self):
+        reconciler = next(
+            item for item in self.template["Resources"].values()
+            if item["Type"] == "AWS::Lambda::Function"
+            and item["Properties"]["FunctionName"].endswith("-Reconciler")
+        )
+        controller_role_id = reconciler["Properties"]["Role"]["Fn::GetAtt"][0]
+        policies = [
+            item for item in self.template["Resources"].values()
+            if item["Type"] == "AWS::IAM::Policy"
+            and {entry.get("Ref") for entry in item["Properties"].get("Roles", []) if isinstance(entry, dict)} == {controller_role_id}
+        ]
+        self.assertIn("ec2:DescribeInstanceTypes", str(policies))
+
     def test_collector_role_is_read_only_for_capacity_and_has_selection_reads(self):
         collector = next(
             item for item in self.template["Resources"].values()

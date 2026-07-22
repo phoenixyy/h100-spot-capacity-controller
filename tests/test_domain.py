@@ -673,6 +673,11 @@ class DomainTests(unittest.TestCase):
         ):
             if key in persisted:
                 persisted[key] = Decimal(persisted[key])
+        persisted["region_selection"] = {
+            "mode": "manual",
+            "signal_max_age_minutes": Decimal(20),
+            "decision_ttl_minutes": Decimal(15),
+        }
         persisted["instance_types"][0]["h100_gpu_count"] = Decimal(8)
 
         class Table:
@@ -684,8 +689,10 @@ class DomainTests(unittest.TestCase):
         restored = DynamoTargetStore("state", Dynamo()).get_mapping("training")
         target = target_from_mapping(restored)
         self.assertEqual(1, target.desired_instance_count)
+        self.assertEqual(20, target.region_selection.signal_max_age_minutes)
         self.assertEqual(0, target.instance_types[0].h100_gpu_count)
         self.assertIs(type(restored["desired_instance_count"]), int)
+        self.assertIs(type(restored["region_selection"]["signal_max_age_minutes"]), int)
 
     def test_lambda_classifies_authorization_and_rate_limit_api_failures_without_writes(self):
         class AwsError(Exception):
