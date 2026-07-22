@@ -39,25 +39,26 @@ active Region, per-Zone fulfilled capacity, Zone expansion state, Region failove
 state, and an error classification when applicable.
 
 Desired and fulfilled capacity SHALL be reported as machine counts. When instance
-metadata is available, the system SHALL additionally report realized accelerator
-model and count as separate metrics that do not affect reconciliation. It SHALL
-report realized H100 GPU count only for `h100-production`; the value SHALL be zero
-for `functional-validation` so an L40S instance is never represented as H100.
+metadata is available, the system SHALL additionally report realized GPU
+manufacturer, model when available, and count as separate observations that do
+not affect reconciliation. It SHALL NOT assign H100-specific semantics to any
+generic GPU metric.
 
 #### Scenario: Fleet creation is partially fulfilled
 - **WHEN** AWS creates a fleet but cannot fulfill its complete target capacity
 - **THEN** the system SHALL record the requested and fulfilled capacity separately
   and expose the shortfall in metrics
 
-#### Scenario: Heterogeneous H100 machines are running
-- **WHEN** the fleet contains approved instance types with different H100 GPU counts
-- **THEN** the system SHALL report machine capacity and realized GPU count as
-  separate values
+#### Scenario: Heterogeneous GPU machines are running
+- **WHEN** the fleet contains explicitly approved GPU instance types with
+  different GPU models or counts
+- **THEN** the system SHALL report machine capacity and per-type realized GPU
+  metadata as separate values
 
-#### Scenario: L40S functional-validation machine is running
-- **WHEN** a `functional-validation` target fulfills one `g6e.xlarge` machine
-- **THEN** the system SHALL report one realized L40S accelerator and zero realized
-  H100 GPUs while retaining machine capacity of one
+#### Scenario: G6e GPU machine is running
+- **WHEN** a generic production target fulfills a G6e GPU instance
+- **THEN** the system SHALL report its actual L40S GPU metadata without requiring
+  a functional-validation profile
 
 #### Scenario: EKS integration readiness is reported separately
 - **WHEN** an `existing-eks` target reports the registration or readiness state of
@@ -96,4 +97,3 @@ event is observed, or when reconciliation reaches its configured error threshold
   that states no failover will execute until the matching approval is supplied
   and, for an `existing-eks` target, identifies source EKS node cleanup and
   workload draining as operator-owned prerequisites
-
