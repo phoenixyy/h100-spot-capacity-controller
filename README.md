@@ -6,9 +6,9 @@ Spot request, **AWS Lambda + EventBridge** for reconciliation, and
 **DynamoDB** for target state, approvals, and operational history.
 
 The controller is deliberately conservative: it starts disabled, treats
-capacity as a number of machines (not GPU count), restricts the production
-GPU metadata validation for operator-selected EC2 types, and never creates a
-cross-Region GPU cluster.
+capacity as a number of machines (not GPU count), requires AWS GPU metadata
+validation for operator-selected EC2 types, and never creates a cross-Region
+GPU cluster.
 
 > This is infrastructure software. Read-only validation is safe to run, but
 > deployment, target enablement, Fleet cancellation, and instance termination
@@ -77,6 +77,27 @@ workflow above.
 The controller manages EC2 capacity, not Kubernetes workloads. It supports a
 `standalone` mode and preserves an `existing-eks` integration boundary, but it
 does not create EKS clusters or call the Kubernetes API.
+
+## Validated behavior
+
+The generic production path has been validated against AWS with a bounded
+`g6e.xlarge` Spot target in Seoul:
+
+- EC2 `DescribeInstanceTypes` identified the machine as one NVIDIA L40S GPU;
+  the same metadata path also recognized available P5-family H100/H200 types.
+- A CPU-only type was rejected before any Fleet request.
+- One maintain Fleet fulfilled one machine, an operator-initiated termination
+  reduced fulfilled capacity from one to zero, and the same Fleet launched a
+  replacement that restored capacity to one.
+- The old instance reached `terminated` before the replacement launched, so
+  pending/running capacity never exceeded the configured maximum of one.
+- The target was disabled and all target-owned Fleet/instance capacity was
+  cleaned up after the test; no capacity ran in the alternate Region.
+
+The deployed Reconciler role therefore requires the read-only
+`ec2:DescribeInstanceTypes` action in addition to its existing discovery
+permissions. The repository test suite currently contains 121 tests covering
+the controller, safety boundaries, deployment template, and selection logic.
 
 ## Quick start: read-only only
 
