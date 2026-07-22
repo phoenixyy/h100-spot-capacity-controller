@@ -336,7 +336,7 @@ class RegionSelectionTests(unittest.TestCase):
             def describe_instance_type_offerings(self, **kwargs):
                 return {"InstanceTypeOfferings": [{"Location": "use1-az1", "InstanceType": "p5.4xlarge"}]}
             def describe_instance_types(self, **kwargs):
-                return {"InstanceTypes": [{"InstanceType": "p5.4xlarge", "VCpuInfo": {"DefaultVCpus": 16}}]}
+                return {"InstanceTypes": [{"InstanceType": "p5.4xlarge", "VCpuInfo": {"DefaultVCpus": 16}, "GpuInfo": {"Gpus": [{"Count": 1, "Manufacturer": "NVIDIA", "Name": "H100"}]}}]}
             def describe_spot_price_history(self, **kwargs):
                 return {"SpotPriceHistory": [{"InstanceType": "p5.4xlarge", "SpotPrice": "4"}]}
         class Pricing:
@@ -547,7 +547,7 @@ class RegionSelectionTests(unittest.TestCase):
                     for item in inputs.standard_placements
                 ]}
             def describe_instance_types(self, **kwargs):
-                return {"InstanceTypes": [{"VCpuInfo": {"DefaultVCpus": 16}}]}
+                return {"InstanceTypes": [{"InstanceType": "p5.4xlarge", "VCpuInfo": {"DefaultVCpus": 16}, "GpuInfo": {"Gpus": [{"Count": 1, "Manufacturer": "NVIDIA", "Name": "H100"}]}}]}
             def describe_spot_price_history(self, **kwargs):
                 return {"SpotPriceHistory": [{"InstanceType": "p5.4xlarge", "SpotPrice": "4"}]}
         class Pricing:

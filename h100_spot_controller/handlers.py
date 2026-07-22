@@ -11,6 +11,7 @@ from typing import Any
 
 from .config import ConfigurationError, target_from_mapping
 from .discovery import discover_region
+from .gpu import describe_gpu_instance_types, target_with_gpu_metadata
 from .fleet import find_owned_fleet, find_owned_instances, observe_fleet_capacity, owned_capacity_inventory
 from .failover import DynamoFailoverApprovalStore, build_failover_plan, execute_approved_failover, target_configuration_version
 from .metrics import NAMESPACE, eks_readiness_metric_data, operational_metric_data, publish_metrics, publish_signal_metrics, region_selection_metric_data, zone_metric_data
@@ -127,6 +128,8 @@ def reconcile(event: dict[str, Any], context: object, *, clients: dict[str, Any]
                 "recommended_region": decision.selected_region if decision else None,
             }
         target = replace(target, active_region=resolution.region)
+        if target.enabled:
+            target, _ = target_with_gpu_metadata(target, clients[target.active_region])
         if previous_state is None and resolution.apply_decision:
             initial_state = VersionedState(
                 target.target_id, 0, resolution.region,
@@ -159,6 +162,8 @@ def reconcile(event: dict[str, Any], context: object, *, clients: dict[str, Any]
                 return {"status": "region_decision_conflict", "aws_write": False}
         if target.enabled:
             for inputs in target.candidate_regions:
+                if target.accelerator_profile != "functional-validation" and hasattr(clients[inputs.region], "describe_instance_types"):
+                    describe_gpu_instance_types(clients[inputs.region], tuple(item.name for item in target.instance_types))
                 inspection = inspect_launch_contract(clients[inputs.region], target, inputs)
                 if not inspection.valid:
                     raise ConfigurationError(f"launch contract invalid in {inputs.region}: {', '.join(inspection.violations)}")

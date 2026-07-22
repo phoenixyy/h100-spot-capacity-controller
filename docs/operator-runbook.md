@@ -1,4 +1,4 @@
-# H100 Spot Capacity Controller — operator runbook
+# GPU Spot Capacity Controller — operator runbook
 
 ## Safety boundary
 
@@ -9,7 +9,7 @@ with `Phoenix-Codex-Local-Spot-`. Fleet, instance and volume resources use a
 matching `Name` tag. AWS-fixed service-linked role names and pre-existing CDK
 bootstrap resources are documented exceptions.
 
-The default `h100-production` profile permits only `p5.4xlarge` and `p5.48xlarge`. The separate `functional-validation` profile permits exactly one `g6e.xlarge` L40S machine, requires standalone mode, ordered Tokyo then Seoul candidate Regions, no Local Zones, and the ownership tag `purpose=functional-validation`. L40S fulfillment validates the controller path only; it is not H100 capacity or workload-compatibility evidence.
+Production targets explicitly list the EC2 GPU types accepted by their workload. The controller verifies each type through AWS metadata before it creates capacity; it does not accept CPU, FPGA, Inferentia, or Trainium types. The separate `functional-validation` profile permits exactly one `g6e.xlarge` L40S machine in Tokyo then Seoul, with standalone mode, no Local Zones, and `purpose=functional-validation`. This is a bounded test fixture, not G6e's only supported path.
 
 ## Before deployment
 
@@ -36,7 +36,7 @@ duplicates rather than hiding an invariant breach, and performs no AWS write. Ad
 `--table STATE_TABLE` after deployment to report the state-authoritative active
 Region after failover.
 
-Review standard-AZ and Local Zone opt-in state, matching approved subnet, and H100 offering. SPS and price results are advisory; an SPS limit or error is not a shortfall or failover trigger.
+Review standard-AZ and Local Zone opt-in state, matching approved subnet, GPU metadata, and instance-type offering. SPS and price results are advisory; an SPS limit or error is not a shortfall or failover trigger.
 
 For the bounded validation target, start from `config/validation-target.example.yaml` and keep `enabled: false`. Its placeholder launch-template, AMI, profile and security-group values are deliberately invalid until approved inputs exist:
 
@@ -45,7 +45,7 @@ h100-spot-controller validate-target config/validation-target.example.yaml
 h100-spot-controller dry-run config/validation-target.example.yaml --profile default
 ```
 
-The report must show `accelerator_profile=functional-validation`, L40S count one and H100 count zero; `g6e.xlarge` offerings in the configured standard AZs; matching subnet Zone IDs; current G/VT Spot vCPU quotas; SPS and Spot prices; Linux On-Demand caps; `aws_write=false`; a one-machine destination request; and an `operator-request` manual failover preview. Refresh these observations immediately before deployment because offerings, scores, prices, quotas and AMIs can change.
+The report must show `accelerator_profile=functional-validation`, one L40S accelerator, `g6e.xlarge` offerings in the configured standard AZs, matching subnet Zone IDs, current G/VT Spot vCPU quotas, SPS and Spot prices, Linux On-Demand caps, `aws_write=false`, a one-machine destination request, and an `operator-request` manual failover preview. Refresh these observations immediately before deployment because offerings, scores, prices, quotas and AMIs can change.
 
 ## Deployment and enabling
 
@@ -60,9 +60,7 @@ h100-spot-controller target-review TARGET_ID --table STATE_TABLE --profile defau
 
 Replacing an existing target requires the version printed by `target-review`. An enabled configuration additionally requires `--enable-capacity`; this is separate from deploying the control plane.
 
-Set final desired and maximum **machine** counts, per-instance Spot caps, and `enabled: true` in a reviewed target. Each machine has weight one even when it exposes eight H100 GPUs. The maintain Fleet continues requesting capacity between reconciliations.
-
-The H100-only allowlist is `p5.4xlarge` (one H100) and `p5.48xlarge` (eight H100s). GPU count is derived by the controller. `p5e.48xlarge` and `p5en.48xlarge` use H200 GPUs and are intentionally rejected.
+Set final desired and maximum **machine** counts, per-instance Spot caps, and `enabled: true` in a reviewed target. Each machine has weight one regardless of GPU model or count. The maintain Fleet continues requesting capacity between reconciliations. The controller accepts only explicitly configured EC2 types whose AWS metadata reports a positive GPU count; it never silently substitutes a different GPU type.
 
 For validation, deploy the control plane and per-Region launch prerequisites only after a separate approval names every resource. The initial contract is:
 

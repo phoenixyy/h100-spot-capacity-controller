@@ -17,7 +17,7 @@ def metric_data(
     realized_h100_gpu_count: int,
     active_zone_count: int,
     *,
-    accelerator_profile: str = "h100-production",
+    accelerator_profile: str = "gpu-production",
     realized_accelerator_count: int | None = None,
     accelerator_counts_by_model: dict[str, int] | None = None,
 ) -> list[dict[str, Any]]:
@@ -27,13 +27,11 @@ def metric_data(
         {"Name": "AcceleratorProfile", "Value": accelerator_profile},
     ]
     realized_accelerator_count = realized_h100_gpu_count if realized_accelerator_count is None else realized_accelerator_count
-    h100_count = realized_h100_gpu_count if accelerator_profile == "h100-production" else 0
     data = [
         {"MetricName": "DesiredMachineCapacity", "Unit": "Count", "Value": outcome.desired_machine_count, "Dimensions": dimensions},
         {"MetricName": "FulfilledMachineCapacity", "Unit": "Count", "Value": outcome.fulfilled_machine_count, "Dimensions": dimensions},
         {"MetricName": "MachineShortfall", "Unit": "Count", "Value": max(0, outcome.desired_machine_count - outcome.fulfilled_machine_count), "Dimensions": dimensions},
         {"MetricName": "RealizedAcceleratorCount", "Unit": "Count", "Value": realized_accelerator_count, "Dimensions": dimensions},
-        {"MetricName": "RealizedH100GpuCount", "Unit": "Count", "Value": h100_count, "Dimensions": dimensions},
         {"MetricName": "ActiveZoneCount", "Unit": "Count", "Value": active_zone_count, "Dimensions": dimensions},
         {"MetricName": "ReconciliationOutcome", "Unit": "Count", "Value": 1, "Dimensions": [*dimensions, {"Name": "Outcome", "Value": outcome.kind}]},
     ]
@@ -51,7 +49,7 @@ def publish_metrics(
     realized_h100_gpu_count: int,
     active_zone_count: int,
     *,
-    accelerator_profile: str = "h100-production",
+    accelerator_profile: str = "gpu-production",
     realized_accelerator_count: int | None = None,
     accelerator_counts_by_model: dict[str, int] | None = None,
 ) -> None:
@@ -63,7 +61,7 @@ def publish_metrics(
     ))
 
 
-def signal_metric_data(target_id: str, snapshot: CandidateSignalSnapshot, accelerator_profile: str = "h100-production") -> list[dict[str, Any]]:
+def signal_metric_data(target_id: str, snapshot: CandidateSignalSnapshot, accelerator_profile: str = "gpu-production") -> list[dict[str, Any]]:
     data: list[dict[str, Any]] = []
     for region, observation in snapshot.sps_by_region.items():
         if observation.status != "ok":
@@ -100,7 +98,7 @@ def signal_metric_data(target_id: str, snapshot: CandidateSignalSnapshot, accele
     return data
 
 
-def publish_signal_metrics(cloudwatch: Any, target_id: str, snapshot: CandidateSignalSnapshot, accelerator_profile: str = "h100-production") -> None:
+def publish_signal_metrics(cloudwatch: Any, target_id: str, snapshot: CandidateSignalSnapshot, accelerator_profile: str = "gpu-production") -> None:
     data = signal_metric_data(target_id, snapshot, accelerator_profile)
     for offset in range(0, len(data), 1000):
         cloudwatch.put_metric_data(Namespace=NAMESPACE, MetricData=data[offset:offset + 1000])

@@ -12,13 +12,7 @@ try:
 except ImportError:  # pragma: no cover
     yaml = None
 
-H100_INSTANCE_GPU_COUNTS = {"p5.4xlarge": 1, "p5.48xlarge": 8}
-H100_INSTANCE_TYPES = frozenset(H100_INSTANCE_GPU_COUNTS)
 ACCELERATOR_CATALOG: dict[str, dict[str, tuple[str, int, int]]] = {
-    "h100-production": {
-        "p5.4xlarge": ("H100", 1, 1),
-        "p5.48xlarge": ("H100", 8, 8),
-    },
     "functional-validation": {
         "g6e.xlarge": ("L40S", 1, 0),
     },
@@ -37,9 +31,9 @@ class ConfigurationError(ValueError):
 class InstanceType:
     name: str
     spot_price_cap_usd: Decimal | None
-    accelerator_model: str
-    accelerator_count: int
-    h100_gpu_count: int
+    accelerator_model: str = "unknown"
+    accelerator_count: int = 0
+    h100_gpu_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -95,7 +89,7 @@ class CapacityTarget:
     candidate_regions: tuple[RegionInputs, ...]
     instance_types: tuple[InstanceType, ...]
     region_selection: RegionSelectionPolicy = field(default_factory=RegionSelectionPolicy)
-    accelerator_profile: Literal["h100-production", "functional-validation"] = "h100-production"
+    accelerator_profile: Literal["gpu-production", "functional-validation"] = "gpu-production"
     integration_mode: Literal["standalone", "existing-eks"] = "standalone"
     price_cap_source: Literal["linux-ondemand"] = "linux-ondemand"
     zone_expansion_minutes: int = 15
@@ -134,8 +128,10 @@ class CapacityTarget:
             raise ConfigurationError("region-selection signal age and decision TTL must be positive")
         if self.integration_mode not in {"standalone", "existing-eks"}:
             raise ConfigurationError("integration_mode must be standalone or existing-eks")
-        if self.accelerator_profile not in ACCELERATOR_CATALOG:
-            raise ConfigurationError("accelerator_profile must be h100-production or functional-validation")
+        if self.accelerator_profile not in {"gpu-production", "functional-validation"}:
+            if self.accelerator_profile == "h100-production":
+                raise ConfigurationError("h100-production is retired; remove accelerator_profile to use generic GPU production")
+            raise ConfigurationError("accelerator_profile must be gpu-production or functional-validation")
         if min(self.zone_expansion_minutes, self.region_failover_minutes, self.failover_approval_minutes) < 1:
             raise ConfigurationError("thresholds must be positive")
         regions = [item.region for item in self.candidate_regions]
@@ -149,17 +145,18 @@ class CapacityTarget:
             raise ConfigurationError("at least one accelerator instance type is required")
         if len({item.name for item in self.instance_types}) != len(self.instance_types):
             raise ConfigurationError("accelerator instance types must be unique")
-        catalog = ACCELERATOR_CATALOG[self.accelerator_profile]
+        catalog = ACCELERATOR_CATALOG.get(self.accelerator_profile, {})
         for instance in self.instance_types:
-            if instance.name not in catalog:
-                raise ConfigurationError(f"{instance.name} is not approved for {self.accelerator_profile}")
+            if not isinstance(instance.name, str) or not instance.name:
+                raise ConfigurationError("instance type names must be non-empty strings")
             if instance.spot_price_cap_usd is not None and (not instance.spot_price_cap_usd.is_finite() or instance.spot_price_cap_usd <= 0):
                 raise ConfigurationError(f"{instance.name} requires a positive price cap")
-            expected_model, expected_count, expected_h100 = catalog[instance.name]
-            if (instance.accelerator_model, instance.accelerator_count, instance.h100_gpu_count) != (expected_model, expected_count, expected_h100):
-                raise ConfigurationError(
-                    f"{instance.name} must report {expected_count} {expected_model} accelerator(s) and {expected_h100} H100 GPU(s)"
-                )
+            if self.accelerator_profile == "functional-validation":
+                if instance.name not in catalog:
+                    raise ConfigurationError(f"{instance.name} is not approved for functional-validation")
+                expected_model, expected_count, expected_h100 = catalog[instance.name]
+                if (instance.accelerator_model, instance.accelerator_count, instance.h100_gpu_count) != (expected_model, expected_count, expected_h100):
+                    raise ConfigurationError(f"{instance.name} must report {expected_count} {expected_model} accelerator(s)")
         if self.price_cap_source != "linux-ondemand":
             raise ConfigurationError("price_cap_source must be linux-ondemand")
         if self.capacity_rebalancing:
@@ -178,7 +175,7 @@ class CapacityTarget:
             if self.ownership_tags.get("purpose") != VALIDATION_PURPOSE_TAG:
                 raise ConfigurationError("functional-validation requires ownership_tags purpose: functional-validation")
         elif self.ownership_tags.get("purpose") == VALIDATION_PURPOSE_TAG:
-            raise ConfigurationError("h100-production cannot use the functional-validation purpose tag")
+            raise ConfigurationError("gpu-production cannot use the functional-validation purpose tag")
         for region in self.candidate_regions:
             if not region.launch_template_id or not region.launch_template_version or not region.standard_placements:
                 raise ConfigurationError(f"{region.region} requires launch-template inputs and a standard-AZ placement")
@@ -240,7 +237,7 @@ def _strict_string_tuple(raw: dict[str, Any], key: str) -> tuple[str, ...]:
 
 def target_from_mapping(raw: dict[str, Any]) -> CapacityTarget:
     try:
-        accelerator_profile = raw.get("accelerator_profile", "h100-production")
+        accelerator_profile = raw.get("accelerator_profile", "gpu-production")
         catalog = ACCELERATOR_CATALOG.get(accelerator_profile, {})
         regions = tuple(RegionInputs(
             region=item["region"], launch_template_id=item["launch_template_id"], launch_template_version=str(item["launch_template_version"]),
@@ -254,14 +251,12 @@ def target_from_mapping(raw: dict[str, Any]) -> CapacityTarget:
         types = []
         for item in raw["instance_types"]:
             expected_model, expected_count, expected_h100 = catalog.get(item["name"], ("unknown", 0, 0))
-            model = item.get("accelerator_model", expected_model)
-            if not isinstance(model, str):
-                raise ConfigurationError("accelerator_model must be a string")
+            model = expected_model if accelerator_profile == "functional-validation" else "unknown"
             types.append(InstanceType(
                 item["name"], Decimal(str(item["spot_price_cap_usd"])) if item.get("spot_price_cap_usd") is not None else None,
                 model,
-                _strict_int(item, "accelerator_count", expected_count),
-                _strict_int(item, "h100_gpu_count", expected_h100),
+                expected_count if accelerator_profile == "functional-validation" else 0,
+                expected_h100 if accelerator_profile == "functional-validation" else 0,
             ))
         selection_raw = raw.get("region_selection", {})
         if not isinstance(selection_raw, dict):

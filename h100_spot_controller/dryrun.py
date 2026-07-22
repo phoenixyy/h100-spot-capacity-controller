@@ -8,6 +8,7 @@ from typing import Any
 
 from .config import CapacityTarget
 from .discovery import discover_region
+from .gpu import GpuMetadataError, target_with_gpu_metadata
 from .failover import build_failover_plan, plan_as_dict, target_configuration_version
 from .fleet import find_owned_fleet, find_owned_instances, fleet_request, observe_fleet_capacity
 from .launch_contract import inspect_launch_contract
@@ -95,8 +96,13 @@ def integration_dry_run(
             "would_apply_automatically": target.region_selection.mode == "auto_initial",
         }
     for inputs in target.candidate_regions:
-        region_target = replace(target, active_region=inputs.region)
         client = ec2_clients[inputs.region]
+        region_target = replace(target, active_region=inputs.region)
+        try:
+            region_target, gpu_metadata = target_with_gpu_metadata(region_target, client)
+            gpu_report = {name: descriptor.as_dict() for name, descriptor in gpu_metadata.items()}
+        except GpuMetadataError as error:
+            gpu_report = {"status": "invalid", "error": str(error)}
         discovery = discover_region(client, inputs.region, [item.name for item in target.instance_types], inputs.local_zone_placements)
         try:
             launch_contract = asdict(inspect_launch_contract(client, target, inputs))
@@ -122,6 +128,7 @@ def integration_dry_run(
             ),
             "g_and_vt_spot_vcpu_quota": _spot_quota_report((service_quota_clients or {}).get(inputs.region)),
             "launch_contract": launch_contract,
+            "gpu_metadata": gpu_report,
             "owned_fleet_id": fleet.get("FleetId") if fleet else None,
             "fulfilled_by_zone": capacity.by_zone if capacity else {},
             "zone_expansion_order": [item.zone_id for item in (*inputs.standard_placements, *inputs.local_zone_placements)],
@@ -149,7 +156,7 @@ def integration_dry_run(
     return {
         "target_id": target.target_id,
         "accelerator_profile": target.accelerator_profile,
-        "accelerators": [{"instance_type": item.name, "model": item.accelerator_model, "count_per_machine": item.accelerator_count, "h100_count_per_machine": item.h100_gpu_count} for item in target.instance_types],
+        "configured_instance_types": [item.name for item in target.instance_types],
         "enabled": target.enabled,
         "aws_write": False,
         "active_region": target.active_region,

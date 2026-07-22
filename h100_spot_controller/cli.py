@@ -7,6 +7,7 @@ from pathlib import Path
 
 from .config import ConfigurationError, load_target, load_target_mapping, target_from_mapping
 from .discovery import discover_region, ec2_client
+from .gpu import describe_gpu_instance_types
 from .dryrun import integration_dry_run
 from .failover import DynamoFailoverApprovalStore, build_failover_plan, plan_as_dict, target_configuration_version, utc_now
 from .fleet import cleanup_owned_fleet, find_owned_fleet, find_owned_instances, fleet_request, observe_fleet_capacity, owned_capacity_inventory, terminate_owned_instances
@@ -66,11 +67,21 @@ def main() -> int:
     args = parser.parse_args()
     if args.command == "target-review":
         import boto3
-        table = boto3.Session(profile_name=args.profile).resource("dynamodb").Table(args.table)
+        session = boto3.Session(profile_name=args.profile)
+        table = session.resource("dynamodb").Table(args.table)
         item = table.get_item(Key={"pk": f"TARGET#{args.target_id}", "sk": "CONFIG"}, ConsistentRead=True).get("Item")
         if item is None:
             parser.error("persisted target configuration not found")
-        print(json.dumps({"target_id": args.target_id, "configuration_version": int(item["configuration_version"]), "config": item["config"], "aws_write": False}, default=str))
+        target = target_from_mapping(item["config"])
+        gpu_metadata = {}
+        if target.accelerator_profile != "functional-validation":
+            gpu_metadata = {
+                inputs.region: {name: descriptor.as_dict() for name, descriptor in describe_gpu_instance_types(
+                    session.client("ec2", region_name=inputs.region), tuple(entry.name for entry in target.instance_types),
+                ).items()}
+                for inputs in target.candidate_regions
+            }
+        print(json.dumps({"target_id": args.target_id, "configuration_version": int(item["configuration_version"]), "config": item["config"], "gpu_metadata": gpu_metadata, "aws_write": False}, default=str))
         return 0
     if args.command == "failover-request":
         import boto3
@@ -93,6 +104,8 @@ def main() -> int:
             destination_inputs = target.region_inputs(args.destination_region)
             source_ec2 = session.client("ec2", region_name=target.active_region)
             destination_ec2 = session.client("ec2", region_name=args.destination_region)
+            if target.accelerator_profile != "functional-validation":
+                describe_gpu_instance_types(destination_ec2, tuple(item.name for item in target.instance_types))
             source_fleet = find_owned_fleet(source_ec2, target)
             if source_fleet is None:
                 raise ValueError("no owned source Fleet exists")
@@ -225,6 +238,13 @@ def main() -> int:
         if target.enabled and not args.enable_capacity:
             parser.error("enabled target may create Spot capacity; repeat with --enable-capacity after dry-run review")
         import boto3
+        session = boto3.Session(profile_name=args.profile)
+        if target.accelerator_profile != "functional-validation":
+            for inputs in target.candidate_regions:
+                describe_gpu_instance_types(
+                    session.client("ec2", region_name=inputs.region),
+                    tuple(item.name for item in target.instance_types),
+                )
         raw = load_target_mapping(args.path)
         version = target_configuration_version(target)
         kwargs = {
@@ -234,7 +254,7 @@ def main() -> int:
         if args.expected_version is not None:
             kwargs["ExpressionAttributeValues"] = {":expected": args.expected_version}
         try:
-            boto3.Session(profile_name=args.profile).resource("dynamodb").Table(args.table).put_item(**kwargs)
+            session.resource("dynamodb").Table(args.table).put_item(**kwargs)
         except Exception as error:
             if getattr(error, "response", {}).get("Error", {}).get("Code") == "ConditionalCheckFailedException":
                 parser.error("target configuration changed or already exists; run target-review and supply its --expected-version")
@@ -253,11 +273,16 @@ def main() -> int:
     else:
         regions = []
         for inputs in target.candidate_regions:
+            client = ec2_client(args.profile, inputs.region)
             discovery = discover_region(
-                ec2_client(args.profile, inputs.region), inputs.region,
+                client, inputs.region,
                 [item.name for item in target.instance_types], inputs.local_zone_placements,
             )
-            regions.append({"region": discovery.region, "zones": [item.__dict__ for item in discovery.zones], "offerings": discovery.offered_instance_types_by_zone})
+            gpu_metadata = (
+                {name: descriptor.as_dict() for name, descriptor in describe_gpu_instance_types(client, tuple(item.name for item in target.instance_types)).items()}
+                if target.accelerator_profile != "functional-validation" else {}
+            )
+            regions.append({"region": discovery.region, "zones": [item.__dict__ for item in discovery.zones], "offerings": discovery.offered_instance_types_by_zone, "gpu_metadata": gpu_metadata})
         payload.update(regions=regions)
     print(json.dumps(payload, default=str))
     return 0

@@ -159,7 +159,7 @@ class CapacityControllerStack(Stack):
             [cloudwatch.GraphWidget(title="Accelerator and Zone state", left=[
                 cloudwatch.Metric(namespace="H100SpotCapacityController", metric_name="RealizedAcceleratorCount", statistic="Maximum"),
                 cloudwatch.Metric(namespace="H100SpotCapacityController", metric_name="RealizedAcceleratorModelCount", statistic="Maximum"),
-                cloudwatch.Metric(namespace="H100SpotCapacityController", metric_name="RealizedH100GpuCount", statistic="Maximum"),
+                cloudwatch.Metric(namespace="H100SpotCapacityController", metric_name="RealizedAcceleratorCount", statistic="Maximum"),
                 cloudwatch.Metric(namespace="H100SpotCapacityController", metric_name="ActiveZoneCount", statistic="Maximum"),
             ])],
             [cloudwatch.GraphWidget(title="Placement and price signals", left=[

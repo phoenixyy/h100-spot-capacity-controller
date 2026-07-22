@@ -12,10 +12,12 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from hashlib import sha256
 import json
+from hashlib import sha256
 from typing import Any
 
 from .config import CapacityTarget
 from .discovery import discover_region
+from .gpu import describe_gpu_instance_types
 from .launch_contract import inspect_launch_contract
 from .pricing import ondemand_caps
 from .signals import SpsObservation, build_sps_request, collect_spot_prices
@@ -46,12 +48,17 @@ class RegionalReadiness:
     best_standard_az_count: int = 0
     error_codes: tuple[str, ...] = ()
     observed_at: datetime | None = None
+    gpu_metadata: dict[str, dict[str, Any]] | None = None
 
     def as_dict(self) -> dict[str, Any]:
+        gpu_metadata = self.gpu_metadata or {}
+        gpu_fingerprint = sha256(json.dumps(gpu_metadata, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest() if gpu_metadata else None
         return {
             "region": self.region,
             "launch_contract_ready": self.launch_contract_ready,
             "offered_instance_types": list(self.offered_instance_types),
+            "gpu_metadata": gpu_metadata,
+            "gpu_metadata_fingerprint": gpu_fingerprint,
             "quota_sufficient": self.quota_sufficient,
             "price_caps_resolved": self.price_caps_resolved,
             "price_ratio": str(self.price_ratio) if self.price_ratio is not None else None,
@@ -75,6 +82,7 @@ class RegionalReadiness:
             best_standard_az_count=int(raw.get("best_standard_az_count", 0)),
             error_codes=tuple(raw.get("error_codes", ())),
             observed_at=_parse_time(raw.get("observed_at")),
+            gpu_metadata=dict(raw.get("gpu_metadata", {})),
         )
 
 
@@ -115,6 +123,13 @@ def collect_regional_readiness(
             offered.update(discovery.offered_instance_types_by_zone.get(zone_id, ()))
     except Exception as error:
         errors.append(f"OFFERINGS_{_aws_error_code(error)}")
+
+    gpu_metadata: dict[str, dict[str, Any]] = {}
+    try:
+        descriptors = describe_gpu_instance_types(ec2, tuple(item.name for item in target.instance_types))
+        gpu_metadata = {name: descriptor.as_dict() for name, descriptor in descriptors.items()}
+    except Exception as error:
+        errors.append(f"GPU_METADATA_{_aws_error_code(error)}")
 
     price_caps_resolved = False
     caps: dict[str, Decimal] = {}
@@ -183,6 +198,7 @@ def collect_regional_readiness(
         best_standard_az_count=best_count,
         error_codes=tuple(errors),
         observed_at=now,
+        gpu_metadata=gpu_metadata,
     )
 
 
@@ -356,6 +372,10 @@ def select_region(target: CapacityTarget, snapshot: RegionSignalSnapshot, now: d
         else:
             if not readiness.launch_contract_ready:
                 reasons.append("LAUNCH_CONTRACT_INVALID")
+            # ``None`` denotes a legacy persisted/read-only snapshot that predates
+            # this field. New collector output uses {} for a failed verification.
+            if readiness.gpu_metadata is not None and not readiness.gpu_metadata:
+                reasons.append("GPU_METADATA_INVALID")
             if not (approved_types & set(readiness.offered_instance_types)):
                 reasons.append("INSTANCE_TYPE_NOT_OFFERED")
             if not readiness.quota_sufficient:

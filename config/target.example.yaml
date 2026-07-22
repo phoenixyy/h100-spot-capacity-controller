@@ -1,6 +1,5 @@
 # Disabled by default; replace placeholders before any eventual deployment.
 target_id: h100-training
-accelerator_profile: h100-production
 enabled: false
 desired_instance_count: 1
 maximum_instance_count: 1
@@ -19,6 +18,7 @@ failover_approval_minutes: 30
 # null uses the controller-owned SNS topic passed to Lambda at deployment.
 notification_topic_arn: null
 instance_types:
+  # Any EC2 GPU type is allowed after read-only AWS metadata verification.
   - name: p5.48xlarge
 candidate_regions:
   - region: us-east-1

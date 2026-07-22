@@ -19,6 +19,7 @@ from h100_spot_controller.handlers import collect as collect_handler, reconcile 
 from h100_spot_controller.notifications import NotificationDeduplicator, failover_event_notifier, publish_controller_event, publish_once, shortfall_notification_due
 from h100_spot_controller.pricing import linux_ondemand_hourly_price
 from h100_spot_controller.launch_contract import inspect_launch_contract
+from h100_spot_controller.gpu import GpuMetadataError, describe_gpu_instance_types, target_with_gpu_metadata
 
 
 def target_mapping(mode="standalone"):
@@ -83,17 +84,36 @@ class DomainTests(unittest.TestCase):
         self.assertEqual(1, target.desired_instance_count)
         self.assertEqual("use1-az1", initial_placement(target).zone_id)
 
-    def test_reject_non_h100_instance(self):
+    def test_generic_configuration_accepts_operator_selected_gpu_type(self):
         data = target_mapping(); data["instance_types"][0]["name"] = "g5.48xlarge"
-        with self.assertRaises(ConfigurationError): target_from_mapping(data)
+        self.assertEqual("g5.48xlarge", target_from_mapping(data).instance_types[0].name)
 
-    def test_h100_instance_types_have_authoritative_gpu_counts_and_reject_h200(self):
+    def test_generic_configuration_defers_gpu_metadata_to_aws(self):
         one_gpu = target_mapping(); one_gpu["instance_types"] = [{"name": "p5.4xlarge"}]
-        self.assertEqual(1, target_from_mapping(one_gpu).instance_types[0].h100_gpu_count)
+        self.assertEqual(0, target_from_mapping(one_gpu).instance_types[0].accelerator_count)
         h200 = target_mapping(); h200["instance_types"] = [{"name": "p5e.48xlarge", "h100_gpu_count": 8}]
-        with self.assertRaises(ConfigurationError): target_from_mapping(h200)
-        wrong = target_mapping(); wrong["instance_types"][0]["h100_gpu_count"] = 1
-        with self.assertRaises(ConfigurationError): target_from_mapping(wrong)
+        self.assertEqual("p5e.48xlarge", target_from_mapping(h200).instance_types[0].name)
+
+    def test_gpu_metadata_accepts_g6e_and_rejects_non_gpu_types(self):
+        class Client:
+            def describe_instance_types(self, **kwargs):
+                return {"InstanceTypes": [
+                    {"InstanceType": "g6e.xlarge", "GpuInfo": {"Gpus": [{"Count": 1, "Manufacturer": "NVIDIA", "Name": "L40S"}]}},
+                    {"InstanceType": "c7i.large", "VCpuInfo": {"DefaultVCpus": 2}},
+                ]}
+        descriptors = describe_gpu_instance_types(Client(), ("g6e.xlarge",))
+        self.assertEqual("L40S", descriptors["g6e.xlarge"].model)
+        with self.assertRaises(GpuMetadataError):
+            describe_gpu_instance_types(Client(), ("c7i.large",))
+
+    def test_generic_g6e_target_receives_aws_metadata(self):
+        data = target_mapping(); data["instance_types"] = [{"name": "g6e.xlarge"}]
+        class Client:
+            def describe_instance_types(self, **kwargs):
+                return {"InstanceTypes": [{"InstanceType": "g6e.xlarge", "GpuInfo": {"Gpus": [{"Count": 1, "Manufacturer": "NVIDIA", "Name": "L40S"}]}}]}
+        target, metadata = target_with_gpu_metadata(target_from_mapping(data), Client())
+        self.assertEqual(1, target.instance_types[0].accelerator_count)
+        self.assertEqual("L40S", metadata["g6e.xlarge"].model)
 
     def test_functional_validation_profile_is_exactly_bounded(self):
         target = target_from_mapping(validation_target_mapping())
@@ -113,10 +133,9 @@ class DomainTests(unittest.TestCase):
                 with self.assertRaises(ConfigurationError):
                     target_from_mapping(invalid)
 
-    def test_l40s_validation_cannot_enter_h100_production_profile(self):
+    def test_l40s_can_enter_generic_gpu_production_profile(self):
         data = target_mapping(); data["instance_types"] = [{"name": "g6e.xlarge"}]
-        with self.assertRaises(ConfigurationError):
-            target_from_mapping(data)
+        self.assertEqual("g6e.xlarge", target_from_mapping(data).instance_types[0].name)
 
     def test_reject_cross_region_eks(self):
         data = target_mapping("existing-eks"); data["candidate_regions"][0]["eks"]["cluster_region"] = "us-west-2"
@@ -555,8 +574,7 @@ class DomainTests(unittest.TestCase):
         report = integration_dry_run(target, clients, Pricing(), datetime.now(timezone.utc), {region: Quota() for region in clients})
         self.assertFalse(report["aws_write"])
         self.assertEqual("functional-validation", report["accelerator_profile"])
-        self.assertEqual("L40S", report["accelerators"][0]["model"])
-        self.assertEqual(0, report["accelerators"][0]["h100_count_per_machine"])
+        self.assertEqual("L40S", report["regions"]["ap-northeast-1"]["gpu_metadata"]["g6e.xlarge"]["model"])
         self.assertEqual("operator-request", report["manual_failover_plan_preview"]["trigger"])
         self.assertEqual("ap-northeast-2", report["manual_failover_plan_preview"]["destination_region"])
         self.assertEqual(target.notification_topic_arn, report["manual_failover_plan_preview"]["notification_topic_arn"])
@@ -580,9 +598,9 @@ class DomainTests(unittest.TestCase):
         data = metric_data(ReconciliationOutcome("shortfall", "training", "us-east-1", 3, 1), 8, 2)
         by_name = {item["MetricName"]: item["Value"] for item in data}
         self.assertEqual(2, by_name["MachineShortfall"])
-        self.assertEqual(8, by_name["RealizedH100GpuCount"])
+        self.assertEqual(8, by_name["RealizedAcceleratorCount"])
 
-    def test_validation_metrics_report_l40s_and_zero_h100(self):
+    def test_validation_metrics_report_l40s(self):
         data = metric_data(
             ReconciliationOutcome("healthy", "g6e-validation", "ap-northeast-1", 1, 1),
             0, 1, accelerator_profile="functional-validation",
@@ -590,7 +608,6 @@ class DomainTests(unittest.TestCase):
         )
         by_name = {item["MetricName"]: item for item in data}
         self.assertEqual(1, by_name["RealizedAcceleratorCount"]["Value"])
-        self.assertEqual(0, by_name["RealizedH100GpuCount"]["Value"])
         model_metric = by_name["RealizedAcceleratorModelCount"]
         self.assertIn({"Name": "AcceleratorModel", "Value": "L40S"}, model_metric["Dimensions"])
 
@@ -667,7 +684,7 @@ class DomainTests(unittest.TestCase):
         restored = DynamoTargetStore("state", Dynamo()).get_mapping("training")
         target = target_from_mapping(restored)
         self.assertEqual(1, target.desired_instance_count)
-        self.assertEqual(8, target.instance_types[0].h100_gpu_count)
+        self.assertEqual(0, target.instance_types[0].h100_gpu_count)
         self.assertIs(type(restored["desired_instance_count"]), int)
 
     def test_lambda_classifies_authorization_and_rate_limit_api_failures_without_writes(self):
@@ -1114,7 +1131,7 @@ class DomainTests(unittest.TestCase):
             def describe_availability_zones(self, **kwargs):
                 return {"AvailabilityZones": [{"ZoneName": "us-east-1a", "ZoneId": "use1-az1"}]}
         self.assertEqual({"use1-az1": 1}, fulfilled_by_zone(Client(), {"FleetId": "fleet-1"}, target))
-        self.assertEqual(8, observe_fleet_capacity(Client(), {"FleetId": "fleet-1"}, target).realized_h100_gpu_count)
+        self.assertEqual(0, observe_fleet_capacity(Client(), {"FleetId": "fleet-1"}, target).realized_h100_gpu_count)
 
     def test_validation_fleet_observation_reports_l40s_not_h100(self):
         target = target_from_mapping(validation_target_mapping(enabled=True))

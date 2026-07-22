@@ -1,13 +1,13 @@
-# H100 Spot Capacity Controller
+# GPU Spot Capacity Controller
 
 A safety-first AWS controller for maintaining a requested number of EC2 Spot
-machines for H100 training capacity. It uses **EC2 Fleet** for the persistent
+machines for GPU training or inference capacity. It uses **EC2 Fleet** for the persistent
 Spot request, **AWS Lambda + EventBridge** for reconciliation, and
 **DynamoDB** for target state, approvals, and operational history.
 
 The controller is deliberately conservative: it starts disabled, treats
 capacity as a number of machines (not GPU count), restricts the production
-H100 allowlist to `p5.4xlarge` and `p5.48xlarge`, and never creates a
+GPU metadata validation for operator-selected EC2 types, and never creates a
 cross-Region GPU cluster.
 
 > This is infrastructure software. Read-only validation is safe to run, but
@@ -105,8 +105,8 @@ defines:
 
 - `desired_instance_count` and `maximum_instance_count`: the number of
   machines to maintain; both default to `1`.
-- `instance_types`: the H100 production profile accepts only `p5.4xlarge` and
-  `p5.48xlarge`.
+- `instance_types`: explicit EC2 GPU types suitable for the workload. The
+  controller verifies them through AWS metadata before creating capacity.
 - `candidate_regions`: ordered, operator-approved Regions, Launch Templates,
   security groups, AMIs, instance profiles, and placement subnets.
 - `region_selection`: `manual`, `recommend`, or `auto_initial`.
