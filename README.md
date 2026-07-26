@@ -95,9 +95,13 @@ python -m venv .venv
 
 完整字段说明见 [`config/target.example.yaml`](config/target.example.yaml)。
 
+## 关于代码里的 H100 命名残留
+
+因历史原因（这个项目最早是为了抢 H100 容量而开发的），代码里大量资源名、命令名、日志命名空间仍带 `h100` 字样（比如 CLI 命令 `h100-spot-controller`、CloudWatch namespace `H100SpotCapacityController`、资源 tag `managed-by: h100-spot-capacity-controller`）。**这些只是命名历史包裹，不代表实际能力边界**——本方案对 GPU 完全不绑定型号，`accelerator_profile` 已不再接受 `h100-production`（代码会报错并提提示改用通用的 `gpu-production`），任何 EC2 GPU 实例类型只要通过 AWS metadata 校验出正的 GPU 数量即可使用。这些命名没有随 README 一同重命名，因为改动会涉及 IAM policy condition、已部署的 CloudWatch Dashboard 和指标查询，改命风险大于收益，所以暂保留。
+
 ## 已在真实 AWS 上验证
 
-在 Seoul 用一个受限的 `g6e.xlarge` Spot target 端到端验证过通用路径：GPU metadata 正确识别出了机型对应的 GPU（同一路径也适用于其他 EC2 GPU 机型），一个 CPU-only 的类型在发起 Fleet 请求前被拒绝，一次运维发起的终止操作触发了自动补位，且始终没有超过配置的上限。121 个测试覆盖了 controller、安全边界、部署模板和 Region/AZ 选型逻辑。
+在 Seoul 用一个受限的 `g6e.xlarge` Spot target 端到端验证过通用路径：GPU metadata 正确识别出了机型对应的 GPU（同一路径也适用于其他 EC2 GPU 机型），一个 CPU-only 的类型在发起 Fleet 请求前被拒绝，一次运维发起的终止操作触发了自动补位，且始终没有超过配置的上限。126 个测试覆盖了 controller、安全边界、部署模板和 Region/AZ 选型逻辑。
 
 ```sh
 JSII_SILENCE_WARNING_UNTESTED_NODE_VERSION=1 .venv/bin/python -m unittest discover -s tests -q
