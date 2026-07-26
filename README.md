@@ -1,13 +1,13 @@
-# H100 Spot Capacity Controller
+# GPU Spot Capacity Controller
 
-**为 GPU 训练/推理稳定维持指定数量的 Spot 实例——用 Spot 的价格，不承担"悄悄超支"或"跨 Region 拆集群"的风险。**
+**为任意 GPU 训练/推理负载稳定维持指定数量的 Spot 实例——用 Spot 的价格，不承担"悄悄超支"或"跨 Region 拆集群"的风险。**
 
-如果你在 EC2 Spot 上跑 GPU 负载，你已经知道这个权衡：Spot 比 On-Demand 便宜 50-70%，但容量随时可能被回收、随时可能恢复。这个 controller 把"始终维持 N 台 GPU 机器"这件事自动化，让你不用手动盯着 Spot Fleet——同时对任何花钱或触碰集群的动作都保持刻意的保守。
+如果你在 EC2 Spot 上跑 GPU 负载，你已经知道这个权衡：Spot 比 On-Demand 便宜 50-70%，但容量随时可能被回收、随时可能恢复。这个 controller 把"始终维持 N 台 GPU 机器"这件事自动化，让你不用手动盯着 Spot Fleet——同时对任何花钱或触碰集群的动作都保持刻意的保守。它不绑定任何特定 GPU 型号：任何 EC2 GPU 实例类型，只要通过 AWS metadata 校验出正的 GPU 数量，都可以配置使用。
 
 ## 这个适合你吗？
 
 适合，如果你：
-- 需要**稳定数量的 GPU Spot 机器**（比如"始终维持 4 台 p5.48xlarge"）用于训练或推理
+- 需要**稳定数量的 GPU Spot 机器**（比如"始终维持 4 台 g6e.xlarge"或"8 台 p5.48xlarge"，任意 EC2 GPU 机型皆可）用于训练或推理
 - 想要 Spot 中断后的**自动恢复**，并且希望 fallback 顺序合理（同 AZ → 其他 AZ → Local Zone → 换 Region），而不想自己写这套逻辑
 - 想要**有护栏的自动化，不是黑盒**——任何影响容量/花钱的动作都卡在一个可审查、会过期的显式审批后面
 - 可能已经在跑 **EKS**，想让 controller 帮忙把节点喂饱，但不允许它碰 Kubernetes API 或干预集群状态
@@ -97,7 +97,7 @@ python -m venv .venv
 
 ## 已在真实 AWS 上验证
 
-在 Seoul 用一个受限的 `g6e.xlarge` Spot target 端到端验证过通用路径：GPU metadata 正确识别出了 L40S（同一路径也能识别 P5 系列 H100/H200），一个 CPU-only 的类型在发起 Fleet 请求前被拒绝，一次运维发起的终止操作触发了自动补位，且始终没有超过配置的上限。121 个测试覆盖了 controller、安全边界、部署模板和 Region/AZ 选型逻辑。
+在 Seoul 用一个受限的 `g6e.xlarge` Spot target 端到端验证过通用路径：GPU metadata 正确识别出了机型对应的 GPU（同一路径也适用于其他 EC2 GPU 机型），一个 CPU-only 的类型在发起 Fleet 请求前被拒绝，一次运维发起的终止操作触发了自动补位，且始终没有超过配置的上限。121 个测试覆盖了 controller、安全边界、部署模板和 Region/AZ 选型逻辑。
 
 ```sh
 JSII_SILENCE_WARNING_UNTESTED_NODE_VERSION=1 .venv/bin/python -m unittest discover -s tests -q
